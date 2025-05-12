@@ -1,0 +1,1958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kanban Task Tracker with Eisenhower Matrix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <style>
+        /* Base styles */
+        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; }
+
+        /* Drag-over effect */
+        .drag-over { border-style: dashed; border-color: #cbd5e1; background-color: #f8fafc; }
+
+        /* Task Styling */
+        .task {
+            cursor: grab; transition: background-color 0.2s ease-in-out, border-left-width 0.2s ease-in-out;
+            border-left-width: 5px; padding-left: 0.6rem; position: relative;
+            padding-top: 0.6rem; padding-right: 0.6rem; min-height: 75px;
+            background-color: white; border-radius: 0.375rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            border: 1px solid #e5e7eb; margin-bottom: 0.6rem;
+        }
+        .task-content-wrapper { padding-bottom: 3rem; }
+        .task:active { cursor: grabbing; background-color: #e2e8f0; }
+        .task.hidden { display: none; }
+
+        /* Column Styling */
+        .kanban-column { min-height: 300px; }
+        .kanban-column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            border-bottom-width: 1px;
+            padding-bottom: 0.375rem;
+        }
+        .kanban-column-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 0 !important;
+            border-bottom: none !important;
+        }
+        .column-task-count {
+            font-size: 0.75rem;
+            font-weight: 500;
+            background-color: #e5e7eb;
+            color: #4b5563;
+            padding: 0.1rem 0.4rem;
+            border-radius: 9999px;
+        }
+        #todo .kanban-column-header h2,
+        #inprogress .kanban-column-header h2,
+        #done .kanban-column-header h2 { color: #374151; }
+        #todo .kanban-column-header,
+        #inprogress .kanban-column-header,
+        #done .kanban-column-header { border-bottom-color: #e5e7eb; }
+
+
+        .kanban-column::-webkit-scrollbar { width: 6px; }
+        .kanban-column::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
+        .kanban-column::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; }
+        .kanban-column::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Message Box */
+        #message-box {
+             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+             padding: 8px 16px; background-color: #22c55e; color: white;
+             border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+             z-index: 1050; opacity: 0; transition: opacity 0.5s ease-in-out; pointer-events: none;
+         }
+         #message-box.show { opacity: 1; pointer-events: auto; }
+
+        /* Priority Border & Label Styles */
+        .priority-do { border-left-color: #ef4444; } .label-do { background-color: #ef4444; color: white; }
+        .priority-schedule { border-left-color: #3b82f6; } .label-schedule { background-color: #3b82f6; color: white; }
+        .priority-delegate { border-left-color: #f97316; } .label-delegate { background-color: #f97316; color: white; }
+        .priority-delete { border-left-color: #6b7280; } .label-delete { background-color: #6b7280; color: white; }
+        .priority-none { border-left-color: #d1d5db; } .label-none { background-color: #d1d5db; color: #374151; }
+        .priority-delete .task-content-wrapper { text-decoration: line-through; opacity: 0.7; }
+        .priority-label {
+            font-size: 0.65rem; font-weight: 600; padding: 0.05rem 0.3rem;
+            border-radius: 0.25rem; margin-left: 0.5rem; float: right;
+            margin-top: 2px; position: relative; z-index: 5;
+        }
+
+        /* Task Text Styling (Base and Priority Colors) */
+        .task-text {
+            display: block; margin-right: 50px;
+            word-wrap: break-word; margin-bottom: 0.4rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: color 0.2s ease-in-out;
+        }
+        .task-text:hover {
+            text-decoration: underline;
+        }
+        .text-priority-do { color: #c53030; }
+        .text-priority-schedule { color: #2c5282; }
+        .text-priority-delegate { color: #dd6b20; }
+        .text-priority-delete { color: #718096; }
+        .text-priority-none { color: #2d3748; }
+
+        /* Note Icon Styling */
+        .note-indicator {
+            font-size: 0.7rem; color: #9ca3af; margin-left: 0.25rem; display: inline-block;
+        }
+
+        /* Tag Styling */
+        .tag-container { margin-top: 0.4rem; padding-bottom: 0.2rem; min-height: 1.25rem; position: relative; z-index: 1; clear: both; }
+        .tag { display: inline-block; background-color: #e5e7eb; color: #4b5563; font-size: 0.65rem; font-weight: 500; padding: 0.1rem 0.4rem; border-radius: 9999px; margin-right: 0.25rem; margin-bottom: 0.25rem; white-space: nowrap; }
+
+        /* Task Footer */
+        .task-footer {
+             position: absolute; bottom: 0; left: 0; right: 0; display: flex;
+             justify-content: space-between; align-items: center; font-size: 0.7rem;
+             color: #64748b; height: 2rem; background-color: #f8fafc;
+             border-top: 1px solid #e5e7eb; padding: 0 0.6rem; box-sizing: border-box;
+             border-bottom-left-radius: 0.375rem; border-bottom-right-radius: 0.375rem;
+         }
+        .due-date-container {
+            display: flex;
+            align-items: center;
+        }
+        .due-date { margin-right: 0.4rem; white-space: nowrap; font-weight: 500; }
+        .due-date-overdue { color: #dc2626; } .due-date-today { color: #ea580c; } .due-date-soon { color: #ca8a04; }
+        .set-due-date-icon {
+            cursor: pointer; font-size: 0.9rem; color: #6b7280;
+            padding: 0.1rem 0.2rem; border-radius: 0.25rem;
+        }
+        .set-due-date-icon:hover { color: #3b82f6; background-color: #eff6ff; }
+        .inline-date-input {
+            padding: 0.1rem 0.2rem; border: 1px solid #d1d5db;
+            border-radius: 0.25rem; font-size: 0.7rem; max-width: 110px;
+        }
+
+        .task-buttons button {
+             background: none; border: none; padding: 1px 3px; cursor: pointer;
+             font-size: 0.75rem; line-height: 1; color: #94a3b8; transition: color 0.2s;
+         }
+         .task-buttons button:hover { color: #475569; }
+        .edit-btn { margin-right: 3px; } .archive-btn { margin-right: 3px; color: #64748b; }
+        .archive-btn:hover { color: #1e293b; } .delete-btn { color: #ef4444; } .delete-btn:hover { color: #dc2626; }
+
+        /* Modals (Base) */
+        .modal {
+             position: fixed; inset: 0; width: 100%; height: 100%;
+             background-color: rgba(0, 0, 0, 0.5); display: flex;
+             justify-content: center; align-items: center; z-index: 1100;
+             opacity: 0; pointer-events: none; transition: opacity 0.3s ease-in-out;
+         }
+        .modal.show { opacity: 1; pointer-events: auto; }
+        .modal-content {
+             background-color: white; padding: 1.5rem; border-radius: 0.5rem;
+             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); width: 90%; max-width: 480px;
+             max-height: 90vh; overflow-y: auto; transform: scale(0.95);
+             transition: transform 0.3s ease-in-out;
+         }
+        .modal.show .modal-content { transform: scale(1); }
+        .modal-content h3 { margin-bottom: 1rem; font-size: 1.125rem; }
+        .modal-content label { display: block; margin-bottom: 0.4rem; font-weight: 500; font-size: 0.875rem;}
+        .modal-content input[type="text"], .modal-content input[type="date"], .modal-content select, .modal-content textarea {
+            width: 100%; padding: 0.6rem; border: 1px solid #d1d5db;
+            border-radius: 0.375rem; margin-bottom: 0.75rem; box-sizing: border-box;
+        }
+        .modal-content textarea { min-height: 80px; resize: vertical; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem;}
+        .modal-priority-group { margin-bottom: 0.75rem; }
+        .modal-priority-group legend { font-weight: 500; margin-bottom: 0.4rem; display: block; font-size: 0.875rem;}
+        .modal-priority-group label { display: inline-flex; align-items: center; margin-right: 1rem; font-weight: normal; margin-bottom: 0.4rem; font-size: 0.875rem;}
+        .modal-priority-group input[type="checkbox"] { margin-right: 0.375rem; width: 0.9rem; height: 0.9rem; }
+        .priority-action-display {
+            font-size: 0.8rem; color: #4b5563; margin-top: 0.2rem; padding: 0.4rem;
+            background-color: #f9fafb; border: 1px dashed #e5e7eb; border-radius: 0.25rem;
+            min-height: 2.25rem; display: flex; align-items: center;
+        }
+
+
+        /* Archive Modal Specifics */
+        #archive-list li {
+             padding: 0.6rem 0.4rem; border-bottom: 1px solid #e5e7eb;
+             display: flex; justify-content: space-between; align-items: center;
+         }
+         #archive-list li:last-child { border-bottom: none; }
+         #archive-list .archived-task-text { flex-grow: 1; margin-right: 0.75rem; font-size: 0.85rem;}
+         #archive-list button {
+             padding: 0.2rem 0.4rem; font-size: 0.75rem; border-radius: 0.25rem;
+             margin-left: 0.4rem;
+          }
+
+        /* Custom Delete Modal */
+        #delete-confirm-modal .modal-content { max-width: 380px; }
+        #delete-task-text { font-weight: 600; color: #4b5563; margin-bottom: 0.75rem; }
+
+        /* Data Management Modal Styling */
+        #data-management-modal .modal-content { max-width: 420px; }
+        .data-action-group { margin-bottom: 0.75rem; }
+        .data-action-group h4 { font-size: 0.9rem; font-weight: 600; color: #374151; margin-bottom: 0.6rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.4rem;}
+        .data-action-group button, .data-action-group label {
+            display: block; width: 100%; text-align: left;
+            padding: 0.5rem 0.8rem; margin-bottom: 0.4rem;
+            border-radius: 0.375rem; transition: background-color 0.2s;
+            font-size: 0.8rem; font-weight: 500;
+        }
+        .data-action-group button:hover, .data-action-group label:hover { background-color: #f3f4f6; }
+        .export-btn-json { background-color: #10b981; color: white; }
+        .export-btn-json:hover { background-color: #059669; }
+        .export-btn-csv { background-color: #06b6d4; color: white; }
+        .export-btn-csv:hover { background-color: #0891b2; }
+        .import-label-json { background-color: #8b5cf6; color: white; cursor: pointer; }
+        .import-label-json:hover { background-color: #7c3aed; }
+        .import-label-csv { background-color: #6366f1; color: white; cursor: pointer; }
+        .import-label-csv:hover { background-color: #4f46e5; }
+
+        /* Category Management Modal Styling */
+        #category-management-modal .modal-content { max-width: 450px; }
+        #category-list { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid #e5e7eb; border-radius: 0.25rem; }
+        #category-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid #f3f4f6; }
+        #category-list li:last-child { border-bottom: none; }
+        #category-list button { background-color: #ef4444; color: white; font-size: 0.75rem; padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
+        #category-list button:hover { background-color: #dc2626; }
+        #add-category-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+        #add-category-group input { flex-grow: 1; }
+        #add-category-group button { white-space: nowrap; }
+
+
+        /* Graph Container */
+        #graph-container {
+            background-color: white; padding: 1rem; border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); margin-bottom: 1rem;
+        }
+        #pie-charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        .pie-chart-wrapper { text-align: center; padding-bottom: 0.25rem; }
+        .pie-chart-wrapper h4 { font-size: 0.8rem; font-weight: 600; color: #374151; margin-bottom: 0.25rem; }
+        .pie-chart-wrapper canvas { max-width: 100%; max-height: 160px; }
+
+
+        /* Search & Filter Container */
+        #controls-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            padding: 0.75rem; background-color: white; border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem;
+        }
+        #search-container {
+            flex: 1 1 auto;
+            min-width: 180px;
+        }
+        #search-input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db; border-radius: 0.375rem;
+            height: 34px; box-sizing: border-box;
+            font-size: 0.875rem;
+        }
+        #filter-sort-add-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin-left: auto;
+        }
+        #filter-sort-add-controls > div {
+             display: flex; align-items: center; gap: 0.4rem;
+        }
+        #filter-sort-add-controls select, #open-add-task-modal-btn-controls {
+            padding: 0.5rem 0.6rem;
+            border: 1px solid #d1d5db; border-radius: 0.375rem;
+            background-color: white; font-size: 0.8rem;
+            height: 34px; box-sizing: border-box;
+        }
+         #open-add-task-modal-btn-controls {
+            background-color: #3b82f6;
+            color: white;
+            font-weight: 600;
+            white-space: nowrap;
+         }
+         #open-add-task-modal-btn-controls:hover {
+            background-color: #2563eb;
+         }
+
+        #filter-sort-add-controls label {
+            font-size: 0.8rem; font-weight: 500; color: #4b5563;
+            white-space: nowrap;
+         }
+
+        /* Summary Info Styling */
+        #summary-info {
+            text-align: center; margin-bottom: 1rem; padding: 0.75rem;
+            background-color: rgba(255, 255, 255, 0.7); border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        #current-date { font-size: 1rem; font-weight: 600; color: #374151; margin-bottom: 0.15rem; }
+        #pending-tasks-count { font-size: 0.8rem; color: #4b5563; }
+        #pending-tasks-count strong { font-weight: 700; color: #1f2937; }
+        #due-this-week-count { display: none; }
+
+        /* Summary Quick Lists */
+        .summary-quick-list-container {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #e5e7eb;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.75rem;
+        }
+        @media (min-width: 640px) {
+            .summary-quick-list-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .summary-quick-list-section h4 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.4rem;
+            text-align: left;
+        }
+        .summary-quick-list {
+            list-style: none; padding: 0; margin: 0; max-height: 100px;
+            overflow-y: auto; border: 1px solid #f3f4f6; border-radius: 0.375rem;
+            background-color: #f9fafb;
+        }
+        .summary-quick-list li {
+            padding: 0.3rem 0.4rem; border-bottom: 1px dashed #f3f4f6;
+            cursor: pointer; font-size: 0.75rem; transition: background-color 0.2s;
+        }
+        .summary-quick-list li:last-child { border-bottom: none; }
+        .summary-quick-list li:hover { background-color: #eef2ff; }
+
+
+        /* Quick Lists Section (Accordion) */
+        #quick-lists-accordion {
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+        }
+        #quick-lists-container {
+            /* padding applied by JS when active */
+        }
+        .quick-list-section { margin-bottom: 1rem; }
+        .quick-list-section:last-child { margin-bottom: 0; }
+        .quick-list-section h3 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.4rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .accordion-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 0.75rem 1rem;
+            transition: background-color 0.2s;
+        }
+        .accordion-header.no-border-bottom { border-bottom: none; }
+        .accordion-header:hover { background-color: #f9fafb; }
+        .accordion-header h2, .accordion-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+        .accordion-icon {
+            transition: transform 0.3s ease-in-out;
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+        .accordion-header.active .accordion-icon { transform: rotate(90deg); }
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, padding-top 0.3s ease-out, padding-bottom 0.3s ease-out;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        .accordion-content.active {
+            max-height: 1000px;
+        }
+
+        .quick-list-section .filter-group {
+            margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;
+        }
+        .quick-list-section .filter-group label { font-size: 0.8rem; color: #4b5563; }
+        .quick-list-section .filter-group select {
+            padding: 0.3rem 0.4rem; border: 1px solid #d1d5db;
+            border-radius: 0.375rem; font-size: 0.8rem; background-color: #f9fafb;
+        }
+        .quick-list {
+            list-style: none; padding: 0; margin: 0; max-height: 130px;
+            overflow-y: auto; border: 1px solid #f3f4f6; border-radius: 0.375rem;
+        }
+        .quick-list li {
+            padding: 0.4rem 0.6rem; border-bottom: 1px solid #f3f4f6;
+            cursor: pointer; font-size: 0.8rem; transition: background-color 0.2s;
+        }
+        .quick-list li:last-child { border-bottom: none; }
+        .quick-list li:hover { background-color: #eef2ff; }
+
+        /* Category Comparison Chart Styling */
+        #category-comparison-container {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 1rem;
+        }
+        #category-comparison-container h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+            text-align: center;
+            margin-bottom: 0.75rem;
+        }
+        #categoryComparisonChart {
+            max-height: 250px;
+        }
+
+        /* Featured Tasks Sub-section in Kanban Columns */
+        .featured-tasks-header {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #4b5563; /* gray-600 */
+            margin-top: 0.5rem;
+            margin-bottom: 0.25rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px dashed #d1d5db; /* gray-300 */
+        }
+        .featured-tasks-list {
+            margin-bottom: 0.5rem; /* Space before main task list */
+        }
+
+
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 font-sans min-h-screen p-3 md:p-6">
+
+    <div class="container mx-auto max-w-6xl">
+        <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-3">
+            <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800">My Kanban Board</h1>
+            <div class="flex gap-2 flex-wrap justify-center">
+                 <button id="view-archive-btn" class="bg-gray-500 hover:bg-gray-600 text-white text-xs font-semibold py-1.5 px-3 rounded-md transition duration-200">
+                    View Archived Tasks
+                 </button>
+                 <button id="open-data-management-modal-btn" class="bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold py-1.5 px-3 rounded-md transition duration-200">
+                    Data Management
+                 </button>
+                 <button id="manage-categories-btn" class="bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold py-1.5 px-3 rounded-md transition duration-200">
+                    Manage Categories
+                </button>
+            </div>
+        </div>
+        <p class="text-center text-gray-600 mb-3 text-xs">Organize tasks using status columns and Eisenhower priority.</p>
+
+        <div id="summary-info">
+            <div id="current-date">Loading date...</div>
+            <div id="pending-tasks-count">Pending tasks: <strong>Loading...</strong></div>
+            <div id="due-this-week-count">Due this week: <strong>Loading...</strong></div>
+            <div class="summary-quick-list-container mt-3">
+                <div class="summary-quick-list-section">
+                    <h4>Today's Tasks</h4>
+                    <ul id="summary-today-tasks-list" class="summary-quick-list"></ul>
+                </div>
+                <div class="summary-quick-list-section">
+                    <h4>Overdue Tasks</h4>
+                    <ul id="summary-overdue-tasks-list" class="summary-quick-list text-red-600"></ul>
+                </div>
+            </div>
+        </div>
+
+        <div id="graph-container" class="bg-white rounded-lg shadow-md p-4 mb-4">
+            <h2 class="text-base font-semibold text-gray-700 text-center mb-3">Task Status by Priority</h2>
+            <div id="pie-charts-grid">
+                <div class="pie-chart-wrapper"> <h4 id="pie-chart-title-do">Do First</h4> <canvas id="pieChartDo"></canvas> </div>
+                <div class="pie-chart-wrapper"> <h4 id="pie-chart-title-schedule">Schedule</h4> <canvas id="pieChartSchedule"></canvas> </div>
+                <div class="pie-chart-wrapper"> <h4 id="pie-chart-title-delegate">Delegate</h4> <canvas id="pieChartDelegate"></canvas> </div>
+                <div class="pie-chart-wrapper"> <h4 id="pie-chart-title-delete">Delete</h4> <canvas id="pieChartDelete"></canvas> </div>
+            </div>
+        </div>
+
+        <div id="category-comparison-container">
+            <h2>Task Count by Category</h2>
+            <canvas id="categoryComparisonChart"></canvas>
+        </div>
+
+
+        <div id="quick-lists-accordion" class="bg-white rounded-lg shadow-md mb-4">
+            <div class="accordion-header">
+                <h3>Filtered Task Views</h3>
+                <span class="accordion-icon text-gray-500 text-xl transform transition-transform duration-300">&#x276F;</span>
+            </div>
+            <div id="quick-lists-container" class="accordion-content"> <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="quick-list-section">
+                        <div class="filter-group">
+                            <h3>Tasks by Category:</h3>
+                            <select id="quick-list-category-filter">
+                                <option value="all">All Categories</option>
+                            </select>
+                        </div>
+                        <ul id="quick-list-category" class="quick-list"></ul>
+                    </div>
+                    <div class="quick-list-section">
+                         <div class="filter-group">
+                            <h3>Tasks by Status:</h3>
+                            <select id="quick-list-status-filter">
+                                <option value="all">All Statuses</option>
+                                <option value="todo">To Do</option>
+                                <option value="inprogress">In Progress</option>
+                                <option value="done">Done</option>
+                            </select>
+                        </div>
+                        <ul id="quick-list-status" class="quick-list"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="controls-container">
+            <div id="search-container">
+                <label for="search-input" class="sr-only">Search Tasks</label>
+                <input type="search" id="search-input" placeholder="Search tasks..." >
+            </div>
+            <div id="filter-sort-add-controls">
+                <div id="filter-sort-controls">
+                    <div> <label for="filter-priority">Filter:</label> <select id="filter-priority"> <option value="all">All Priorities</option> <option value="do">Do First</option> <option value="schedule">Schedule</option> <option value="delegate">Delegate</option> <option value="delete">Delete</option> <option value="none">No Priority</option> </select> </div>
+                    <div> <label for="sort-tasks">Sort:</label> <select id="sort-tasks"> <option value="default">Newest First</option> <option value="dueDateAsc">Due Date (Asc)</option> <option value="dueDateDesc">Due Date (Desc)</option> </select> </div>
+                </div>
+                <button id="open-add-task-modal-btn-controls" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold shadow hover:shadow-lg">
+                    + Add New Task
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 mb-6">
+            <div id="todo" class="kanban-column bg-white/80 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-gray-200 flex flex-col" data-column-id="todo">
+                <div class="kanban-column-header"> <h2>To Do</h2> <span class="column-task-count" id="todo-count">0</span> </div>
+                <div class="featured-tasks-header">Due Soon / Overdue:</div>
+                <div class="featured-tasks-list task-list p-1"></div> <div class="task-list-main task-list flex-grow overflow-y-auto p-1"></div> </div>
+            <div id="inprogress" class="kanban-column bg-white/80 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-gray-200 flex flex-col" data-column-id="inprogress">
+                <div class="kanban-column-header"> <h2>In Progress</h2> <span class="column-task-count" id="inprogress-count">0</span> </div>
+                <div class="featured-tasks-header">Due Soon / Overdue:</div>
+                <div class="featured-tasks-list task-list p-1"></div> <div class="task-list-main task-list flex-grow overflow-y-auto p-1"></div> </div>
+            <div id="done" class="kanban-column bg-white/80 backdrop-blur-sm rounded-lg shadow-lg p-4 border border-gray-200 flex flex-col" data-column-id="done">
+                <div class="kanban-column-header"> <h2>Done</h2> <span class="column-task-count" id="done-count">0</span> </div>
+                <div class="task-list-main task-list flex-grow overflow-y-auto p-1"></div> </div>
+        </div>
+    </div>
+
+    <div id="add-task-modal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-semibold text-gray-800">Add New Task</h3>
+            <div><label for="add-modal-task-text">Task Description (Title):</label><input type="text" id="add-modal-task-text" required></div>
+            <div><label for="add-modal-task-notes">Notes/Details:</label><textarea id="add-modal-task-notes" placeholder="Add more details here..."></textarea></div>
+            <div>
+                <label for="add-modal-task-category-select">Category:</label>
+                <div class="flex gap-2">
+                    <select id="add-modal-task-category-select" class="flex-grow"></select>
+                    <input type="text" id="add-modal-new-category-input" class="hidden flex-grow" placeholder="New category name">
+                </div>
+            </div>
+            <div><label for="add-modal-task-tags">Tags (comma-separated):</label><input type="text" id="add-modal-task-tags" placeholder="e.g., projectA, urgent"></div>
+            <div><label for="add-modal-task-due-date">Due Date:</label><input type="date" id="add-modal-task-due-date"></div>
+            <div class="priority-checkbox-group">
+                <legend>Priority Matrix:</legend>
+                <label><input type="checkbox" id="add-modal-urgent-cb"> Urgent</label>
+                <label><input type="checkbox" id="add-modal-important-cb" checked> Important</label>
+            </div>
+            <div class="priority-action-display">Action: <strong id="add-modal-priority-action">Schedule</strong></div>
+            <div class="modal-buttons">
+                <button id="cancel-add-task-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-md">Cancel</button>
+                <button id="confirm-add-task-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-md">Add Task</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="modal">
+         <div class="modal-content">
+             <h3 class="text-xl font-semibold text-gray-800">Edit Task</h3>
+             <input type="hidden" id="edit-task-id">
+             <div><label for="edit-task-text">Task Description (Title):</label><input type="text" id="edit-task-text" required></div>
+             <div><label for="edit-task-notes">Notes/Details:</label><textarea id="edit-task-notes"></textarea></div>
+             <div>
+                <label for="edit-modal-task-category-select">Category:</label>
+                <div class="flex gap-2">
+                    <select id="edit-modal-task-category-select" class="flex-grow"></select>
+                    <input type="text" id="edit-modal-new-category-input" class="hidden flex-grow" placeholder="New category name">
+                </div>
+            </div>
+             <div><label for="edit-task-tags">Tags (comma-separated):</label><input type="text" id="edit-task-tags"></div>
+             <div><label for="edit-task-due-date">Due Date:</label><input type="date" id="edit-task-due-date"></div>
+             <div class="priority-checkbox-group">
+                <legend>Priority Matrix:</legend>
+                <label><input type="checkbox" id="edit-modal-urgent-cb"> Urgent</label>
+                <label><input type="checkbox" id="edit-modal-important-cb"> Important</label>
+            </div>
+            <div class="priority-action-display">Action: <strong id="edit-modal-priority-action"></strong></div>
+             <div class="modal-buttons">
+                 <button id="cancel-edit-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-md">Cancel</button>
+                 <button id="save-edit-btn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md">Save Changes</button>
+             </div>
+         </div>
+     </div>
+
+    <div id="archive-modal" class="modal">
+         <div class="modal-content">
+             <h3 class="text-xl font-semibold text-gray-800">Archived Tasks</h3>
+             <ul id="archive-list" class="mb-4">
+                 <li id="no-archived-tasks" class="text-gray-500 italic" style="display: list-item;">No archived tasks found.</li>
+             </ul>
+             <div class="modal-buttons">
+                 <button id="close-archive-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md">Close</button>
+             </div>
+         </div>
+     </div>
+
+    <div id="delete-confirm-modal" class="modal">
+         <div class="modal-content">
+             <h3 class="text-xl font-semibold text-red-600">Confirm Deletion</h3>
+             <p class="mb-4 text-gray-700">Are you sure you want to permanently delete this task? This action cannot be undone.</p>
+             <p id="delete-task-text" class="p-2 bg-gray-100 rounded border border-gray-300"></p>
+             <input type="hidden" id="delete-task-id">
+             <div class="modal-buttons">
+                 <button id="cancel-delete-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-md">Cancel</button>
+                 <button id="confirm-delete-btn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md">Delete Task</button>
+             </div>
+         </div>
+     </div>
+
+    <div id="data-management-modal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-semibold text-gray-800">Data Management</h3>
+            <div class="data-action-group">
+                <h4>Export Tasks</h4>
+                <button id="modal-export-json-btn" class="export-btn-json">Export as JSON</button>
+                <button id="modal-export-csv-btn" class="export-btn-csv">Export as CSV</button>
+            </div>
+            <div class="data-action-group">
+                <h4>Import Tasks</h4>
+                <p class="text-xs text-gray-500 mb-2">Note: Importing will replace all current tasks.</p>
+                <label for="modal-import-json-input" class="import-label-json">Import from JSON</label>
+                <input type="file" id="modal-import-json-input" class="hidden" accept=".json">
+
+                <label for="modal-import-csv-input" class="import-label-csv">Import from CSV</label>
+                <input type="file" id="modal-import-csv-input" class="hidden" accept=".csv">
+            </div>
+            <div class="modal-buttons">
+                <button id="close-data-management-modal-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="category-management-modal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-semibold text-gray-800">Manage Categories</h3>
+            <div id="add-category-group">
+                <input type="text" id="new-category-name-input" placeholder="New category name" class="border p-2 rounded-l-md flex-grow">
+                <button id="add-new-category-btn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-3 rounded-r-md">Add</button>
+            </div>
+            <h4>Existing Categories:</h4>
+            <ul id="category-list">
+                </ul>
+            <div class="modal-buttons">
+                <button id="close-category-management-modal-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md">Done</button>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="message-box">Task Completed! 🎉</div>
+
+    <script>
+        // --- DOM Elements ---
+        const columns = document.querySelectorAll('.kanban-column');
+        const messageBox = document.getElementById('message-box');
+        const searchInput = document.getElementById('search-input');
+        const filterPrioritySelect = document.getElementById('filter-priority');
+        const sortTasksSelect = document.getElementById('sort-tasks');
+        const openAddTaskModalBtnControls = document.getElementById('open-add-task-modal-btn-controls');
+        const addTaskModal = document.getElementById('add-task-modal');
+        const addModalTaskTextInput = document.getElementById('add-modal-task-text');
+        const addModalTaskNotesInput = document.getElementById('add-modal-task-notes');
+        const addModalTaskCategorySelect = document.getElementById('add-modal-task-category-select');
+        const addModalNewCategoryInput = document.getElementById('add-modal-new-category-input');
+        const addModalTaskTagsInput = document.getElementById('add-modal-task-tags');
+        const addModalTaskDueDateInput = document.getElementById('add-modal-task-due-date');
+        const addModalUrgentCb = document.getElementById('add-modal-urgent-cb');
+        const addModalImportantCb = document.getElementById('add-modal-important-cb');
+        const addModalPriorityActionDisplay = document.getElementById('add-modal-priority-action');
+        const confirmAddTaskBtn = document.getElementById('confirm-add-task-btn');
+        const cancelAddTaskBtn = document.getElementById('cancel-add-task-btn');
+        const editModal = document.getElementById('edit-modal');
+        const editTaskIdInput = document.getElementById('edit-task-id');
+        const editTaskTextInput = document.getElementById('edit-task-text');
+        const editTaskNotesInput = document.getElementById('edit-task-notes');
+        const editModalTaskCategorySelect = document.getElementById('edit-modal-task-category-select');
+        const editModalNewCategoryInput = document.getElementById('edit-modal-new-category-input');
+        const editTaskTagsInput = document.getElementById('edit-task-tags');
+        const editModalUrgentCb = document.getElementById('edit-modal-urgent-cb');
+        const editModalImportantCb = document.getElementById('edit-modal-important-cb');
+        const editModalPriorityActionDisplay = document.getElementById('edit-modal-priority-action');
+        const editTaskDueDateInput = document.getElementById('edit-task-due-date');
+        const saveEditBtn = document.getElementById('save-edit-btn');
+        const cancelEditBtn = document.getElementById('cancel-edit-btn');
+        const archiveModal = document.getElementById('archive-modal');
+        const archiveList = document.getElementById('archive-list');
+        const viewArchiveBtn = document.getElementById('view-archive-btn');
+        const closeArchiveBtn = document.getElementById('close-archive-btn');
+        const noArchivedTasksLi = document.getElementById('no-archived-tasks');
+        const deleteConfirmModal = document.getElementById('delete-confirm-modal');
+        const deleteTaskIdInput = document.getElementById('delete-task-id');
+        const deleteTaskTextP = document.getElementById('delete-task-text');
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+        const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+        const currentDateEl = document.getElementById('current-date');
+        const pendingTasksCountEl = document.getElementById('pending-tasks-count');
+        const dueThisWeekCountEl = document.getElementById('due-this-week-count');
+        const openDataManagementModalBtn = document.getElementById('open-data-management-modal-btn');
+        const dataManagementModal = document.getElementById('data-management-modal');
+        const modalExportJsonBtn = document.getElementById('modal-export-json-btn');
+        const modalExportCsvBtn = document.getElementById('modal-export-csv-btn');
+        const modalImportJsonInput = document.getElementById('modal-import-json-input');
+        const modalImportCsvInput = document.getElementById('modal-import-csv-input');
+        const closeDataManagementModalBtn = document.getElementById('close-data-management-modal-btn');
+        // Quick List Elements
+        const summaryTodayTasksListUl = document.getElementById('summary-today-tasks-list');
+        const summaryOverdueTasksListUl = document.getElementById('summary-overdue-tasks-list');
+        const quickListCategoryFilter = document.getElementById('quick-list-category-filter');
+        const quickListCategoryUl = document.getElementById('quick-list-category');
+        const quickListStatusFilter = document.getElementById('quick-list-status-filter');
+        const quickListStatusUl = document.getElementById('quick-list-status');
+        // Category Management Modal Elements
+        const manageCategoriesBtn = document.getElementById('manage-categories-btn');
+        const categoryManagementModal = document.getElementById('category-management-modal');
+        const newCategoryNameInput = document.getElementById('new-category-name-input');
+        const addNewCategoryBtn = document.getElementById('add-new-category-btn');
+        const categoryListUl = document.getElementById('category-list');
+        const closeCategoryManagementModalBtn = document.getElementById('close-category-management-modal-btn');
+        // Category Comparison Chart
+        const categoryComparisonChartCanvas = document.getElementById('categoryComparisonChart');
+
+
+        // --- State ---
+        let tasks = [];
+        let categories = ["Work", "Personal", "Study", "Finance", "Health", "Hobbies"];
+        let draggedTask = null;
+        let priorityPieCharts = {};
+        let categoryComparisonChart = null;
+        let currentSearchTerm = '';
+        let currentPriorityFilter = 'all';
+        let currentSort = 'default';
+        let currentQuickListCategory = 'all';
+        let currentQuickListStatus = 'all';
+
+
+        // --- Constants ---
+        const PRIORITIES = { DO: 'do', SCHEDULE: 'schedule', DELEGATE: 'delegate', DELETE: 'delete', NONE: 'none' };
+        const PRIORITY_LABELS = { [PRIORITIES.DO]: 'Do First', [PRIORITIES.SCHEDULE]: 'Schedule', [PRIORITIES.DELEGATE]: 'Delegate', [PRIORITIES.DELETE]: 'Delete', [PRIORITIES.NONE]: 'No Priority' };
+        const PRIORITY_CLASSES = { [PRIORITIES.DO]: 'priority-do', [PRIORITIES.SCHEDULE]: 'priority-schedule', [PRIORITIES.DELEGATE]: 'priority-delegate', [PRIORITIES.DELETE]: 'priority-delete', [PRIORITIES.NONE]: 'priority-none' };
+        const PRIORITY_LABEL_CLASSES = { [PRIORITIES.DO]: 'label-do', [PRIORITIES.SCHEDULE]: 'label-schedule', [PRIORITIES.DELEGATE]: 'label-delegate', [PRIORITIES.DELETE]: 'label-delete', [PRIORITIES.NONE]: 'label-none' };
+        const PRIORITY_TEXT_CLASSES = {
+            [PRIORITIES.DO]: 'text-priority-do', [PRIORITIES.SCHEDULE]: 'text-priority-schedule',
+            [PRIORITIES.DELEGATE]: 'text-priority-delegate', [PRIORITIES.DELETE]: 'text-priority-delete',
+            [PRIORITIES.NONE]: 'text-priority-none'
+        };
+        const STATUS_COLORS = {
+            todo: 'rgba(239, 68, 68, 0.7)', inprogress: 'rgba(245, 158, 11, 0.7)', done: 'rgba(34, 197, 94, 0.7)'
+        };
+        const STATUS_BORDER_COLORS = {
+            todo: 'rgba(239, 68, 68, 1)', inprogress: 'rgba(245, 158, 11, 1)', done: 'rgba(34, 197, 94, 1)'
+        };
+
+        // --- Chart.js Font Config ---
+        Chart.defaults.font.family = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'";
+        Chart.defaults.font.size = 12; Chart.defaults.color = '#4b5563';
+
+        // --- Utility Functions ---
+        function generateId() { return 'task-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9); }
+        function showMessage(message, duration = 2000) {
+            if (!messageBox) return;
+             messageBox.textContent = message;
+             messageBox.classList.add('show');
+             setTimeout(() => messageBox.classList.remove('show'), duration);
+        }
+        function formatDateForInput(dateString) {
+             if (!dateString) return '';
+             try {
+                 const date = new Date(dateString + 'T00:00:00');
+                 if (isNaN(date.getTime())) return '';
+                 return date.toISOString().split('T')[0];
+             } catch (e) { return ''; }
+         }
+        function getNormalizedDate(dateInput) {
+             try {
+                 const date = typeof dateInput === 'string' ? new Date(dateInput + 'T00:00:00') : dateInput;
+                 if (isNaN(date.getTime())) return null;
+                 date.setHours(0, 0, 0, 0);
+                 return date;
+             } catch (e) { return null; }
+         }
+        function isDateOverdue(dueDateStr) {
+             const today = getNormalizedDate(new Date());
+             const dueDate = getNormalizedDate(dueDateStr);
+             return dueDate && today && dueDate < today;
+         }
+        function isDateToday(dueDateStr) {
+             const today = getNormalizedDate(new Date());
+             const dueDate = getNormalizedDate(dueDateStr);
+             return dueDate && today && dueDate.getTime() === today.getTime();
+         }
+        function isDateSoon(dueDateStr, days = 7) {
+             const today = getNormalizedDate(new Date());
+             const dueDate = getNormalizedDate(dueDateStr);
+             if (!dueDate || !today || dueDate <= today) return false;
+             const soonDate = new Date(today);
+             soonDate.setDate(today.getDate() + days + 1);
+             return dueDate < soonDate;
+         }
+        function isDateInCurrentWeek(dateString) {
+            if (!dateString) return false;
+            const date = getNormalizedDate(dateString);
+            if (!date) return false;
+
+            const today = new Date();
+            const currentDay = today.getDay();
+            const monday = new Date(today);
+            monday.setDate(today.getDate() - (currentDay === 0 ? 6 : currentDay - 1));
+            monday.setHours(0, 0, 0, 0);
+
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            sunday.setHours(23, 59, 59, 999);
+
+            return date >= monday && date <= sunday;
+        }
+
+        function parseTags(tagsString) {
+            if (!tagsString || typeof tagsString !== 'string') return [];
+            return tagsString.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
+        }
+        function getTodayDateString() { return new Date().toISOString().split('T')[0]; }
+        function getTomorrowDateString() { const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); return tomorrow.toISOString().split('T')[0]; }
+        function getPastDateString(days) { const pastDate = new Date(); pastDate.setDate(pastDate.getDate() - days); return pastDate.toISOString().split('T')[0]; }
+
+        function displayCurrentDate() {
+            if (currentDateEl) {
+                const today = new Date();
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                currentDateEl.textContent = today.toLocaleDateString('en-US', options);
+            }
+        }
+        function updateSummaryCounts() {
+            if (pendingTasksCountEl) {
+                const pendingCount = tasks.filter(task => task.status !== 'done' && !task.isArchived).length;
+                pendingTasksCountEl.innerHTML = `Pending tasks: <strong>${pendingCount}</strong>`;
+            }
+            if (dueThisWeekCountEl) dueThisWeekCountEl.style.display = 'none';
+        }
+
+        function getPriorityFromCheckboxes(urgentCb, importantCb) {
+            const isUrgent = urgentCb.checked;
+            const isImportant = importantCb.checked;
+
+            if (isUrgent && isImportant) return PRIORITIES.DO;
+            if (!isUrgent && isImportant) return PRIORITIES.SCHEDULE;
+            if (isUrgent && !isImportant) return PRIORITIES.DELEGATE;
+            if (!isUrgent && !isImportant) return PRIORITIES.DELETE;
+            return PRIORITIES.NONE;
+        }
+
+        function updatePriorityActionDisplay(urgentCb, importantCb, displayElement) {
+            const priority = getPriorityFromCheckboxes(urgentCb, importantCb);
+            if (displayElement) {
+                displayElement.textContent = PRIORITY_LABELS[priority] || "Unknown";
+            }
+        }
+
+
+        // --- Task Element Creation ---
+        function createTaskElement(task) {
+            const taskElement = document.createElement('div');
+            taskElement.id = task.id;
+            taskElement.className = `task ${PRIORITY_CLASSES[task.priority] || PRIORITY_CLASSES.NONE}`;
+            taskElement.draggable = true;
+
+
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = 'task-content-wrapper';
+
+            const priorityLabel = document.createElement('span');
+            priorityLabel.className = `priority-label ${PRIORITY_LABEL_CLASSES[task.priority] || PRIORITY_LABEL_CLASSES.NONE}`;
+            priorityLabel.textContent = PRIORITY_LABELS[task.priority] || PRIORITY_LABELS.NONE;
+            contentWrapper.appendChild(priorityLabel);
+
+            const textSpan = document.createElement('span');
+            textSpan.className = `task-text ${PRIORITY_TEXT_CLASSES[task.priority] || PRIORITY_TEXT_CLASSES.NONE}`;
+            textSpan.textContent = task.text;
+            textSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openEditModal(task.id);
+            });
+            contentWrapper.appendChild(textSpan);
+
+            if (task.description && task.description.trim() !== '') {
+                const noteIcon = document.createElement('span');
+                noteIcon.className = 'note-indicator';
+                noteIcon.innerHTML = '🗒️';
+                noteIcon.title = "Task has notes/description";
+                textSpan.appendChild(noteIcon);
+            }
+
+            const tagsContainer = document.createElement('div');
+            tagsContainer.className = 'tag-container';
+            if (task.tags && task.tags.length > 0) {
+                task.tags.forEach(tag => {
+                    const tagSpan = document.createElement('span');
+                    tagSpan.className = 'tag';
+                    tagSpan.textContent = tag;
+                    tagsContainer.appendChild(tagSpan);
+                });
+            }
+            contentWrapper.appendChild(tagsContainer);
+            taskElement.appendChild(contentWrapper);
+
+            const footer = document.createElement('div');
+            footer.className = 'task-footer';
+
+            const dueDateContainer = document.createElement('span');
+            dueDateContainer.className = 'due-date-container';
+            const formattedDate = formatDateForInput(task.dueDate);
+
+            if (formattedDate) {
+                 const dueDateText = document.createElement('span');
+                 dueDateText.className = 'due-date';
+                 dueDateText.textContent = `Due: ${formattedDate}`;
+                 if (task.status !== 'done') {
+                     if (isDateOverdue(task.dueDate)) { dueDateText.classList.add('due-date-overdue'); dueDateText.title = 'Overdue!'; }
+                     else if (isDateToday(task.dueDate)) { dueDateText.classList.add('due-date-today'); dueDateText.title = 'Due Today!'; }
+                     else if (isDateSoon(task.dueDate, 7)) { dueDateText.classList.add('due-date-soon'); dueDateText.title = 'Due Soon!'; }
+                 }
+                 dueDateContainer.appendChild(dueDateText);
+            } else {
+                const setDateIcon = document.createElement('span');
+                setDateIcon.innerHTML = '📅';
+                setDateIcon.className = 'set-due-date-icon';
+                setDateIcon.title = 'Set Due Date';
+                setDateIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setDateIcon.style.display = 'none';
+                    const dateInput = document.createElement('input');
+                    dateInput.type = 'date';
+                    dateInput.className = 'inline-date-input';
+                    dateInput.min = getTodayDateString();
+
+                    const parent = setDateIcon.parentNode;
+                    if (parent) parent.insertBefore(dateInput, setDateIcon.nextSibling);
+                    dateInput.focus();
+
+                    const saveOrRevertDate = () => {
+                        const newDate = dateInput.value;
+                        if (dateInput.parentNode) dateInput.remove();
+
+                        if (newDate) {
+                            task.dueDate = newDate;
+                            saveTasks();
+                            renderTasks();
+                        } else {
+                             if (!task.dueDate) setDateIcon.style.display = 'inline';
+                        }
+                    };
+                    dateInput.addEventListener('change', saveOrRevertDate);
+                    dateInput.addEventListener('blur', () => {
+                        setTimeout(() => {
+                            if (document.body.contains(dateInput)) {
+                                saveOrRevertDate();
+                            }
+                        }, 150);
+                    });
+                });
+                dueDateContainer.appendChild(setDateIcon);
+            }
+            footer.appendChild(dueDateContainer);
+
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.className = 'task-buttons';
+            const editBtn = document.createElement('button');
+            editBtn.innerHTML = '✏️'; editBtn.className = 'edit-btn'; editBtn.title = 'Edit Task';
+            editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(task.id); };
+            buttonsDiv.appendChild(editBtn);
+            if (task.status === 'done') {
+                 const archiveBtn = document.createElement('button');
+                 archiveBtn.innerHTML = '📦'; archiveBtn.className = 'archive-btn'; archiveBtn.title = 'Archive Task';
+                 archiveBtn.onclick = (e) => { e.stopPropagation(); archiveTask(task.id); };
+                 buttonsDiv.appendChild(archiveBtn);
+            }
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '🗑️'; deleteBtn.className = 'delete-btn'; deleteBtn.title = 'Delete Task';
+            deleteBtn.onclick = (e) => { e.stopPropagation(); openDeleteConfirmModal(task.id, task.text); };
+            buttonsDiv.appendChild(deleteBtn);
+            footer.appendChild(buttonsDiv);
+            taskElement.appendChild(footer);
+
+            taskElement.addEventListener('dragstart', (e) => {
+                 draggedTask = taskElement; e.dataTransfer.setData('text/plain', task.id);
+                 e.dataTransfer.effectAllowed = 'move'; setTimeout(() => taskElement.classList.add('opacity-50'), 0);
+             });
+            taskElement.addEventListener('dragend', () => {
+                 if (draggedTask) draggedTask.classList.remove('opacity-50'); draggedTask = null;
+             });
+            return taskElement;
+        }
+
+        // --- Rendering, Filtering & Sorting ---
+        function renderTasks() {
+            document.querySelectorAll('.task-list').forEach(list => list.innerHTML = '');
+            document.querySelectorAll('.featured-tasks-list').forEach(list => list.innerHTML = '');
+            document.querySelectorAll('.column-task-count').forEach(el => el.textContent = '0');
+
+            let tasksToDisplayOnBoard = tasks.filter(task => !task.isArchived);
+
+            if (currentSearchTerm) {
+                tasksToDisplayOnBoard = tasksToDisplayOnBoard.filter(task =>
+                    task.text.toLowerCase().includes(currentSearchTerm) ||
+                    (task.tags && task.tags.some(tag => tag.toLowerCase().includes(currentSearchTerm))) ||
+                    (task.description && task.description.toLowerCase().includes(currentSearchTerm))
+                );
+            }
+
+            if (currentPriorityFilter !== 'all') {
+                tasksToDisplayOnBoard = tasksToDisplayOnBoard.filter(task => task.priority === currentPriorityFilter);
+            }
+
+            tasksToDisplayOnBoard.sort((a, b) => {
+                switch (currentSort) {
+                    case 'dueDateAsc':
+                        if (!a.dueDate && !b.dueDate) return 0; if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+                        return new Date(a.dueDate + 'T00:00:00') - new Date(b.dueDate + 'T00:00:00');
+                    case 'dueDateDesc':
+                        if (!a.dueDate && !b.dueDate) return 0; if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+                        return new Date(b.dueDate + 'T00:00:00') - new Date(a.dueDate + 'T00:00:00');
+                    case 'default': default: return (b.createdAt || 0) - (a.createdAt || 0);
+                }
+            });
+
+            const columnCounts = { todo: 0, inprogress: 0, done: 0 };
+
+            tasksToDisplayOnBoard.forEach(task => {
+                if (!task.priority) task.priority = PRIORITIES.NONE;
+                if (!task.status) task.status = 'todo';
+
+                const columnEl = document.getElementById(task.status);
+                const isFeatured = (task.status === 'todo' || task.status === 'inprogress') &&
+                                   (isDateOverdue(task.dueDate) || isDateToday(task.dueDate) || isDateSoon(task.dueDate, 7));
+
+                if (columnEl) {
+                    const mainListEl = columnEl.querySelector('.task-list-main');
+                    const featuredListEl = columnEl.querySelector('.featured-tasks-list');
+
+                    if (isFeatured && featuredListEl) {
+                        const featuredTaskElement = createTaskElement(task); // Create one element
+                        featuredListEl.appendChild(featuredTaskElement);
+                        // Don't add to mainListEl if it's featured to avoid duplication on the board itself
+                    } else if (mainListEl) {
+                        const taskElement = createTaskElement(task); // Create element for main list
+                        mainListEl.appendChild(taskElement);
+                    }
+                    columnCounts[task.status]++;
+                } else {
+                    console.warn(`Column not found for status: ${task.status}. Defaulting to 'todo'.`);
+                    const todoColList = document.querySelector('#todo .task-list-main');
+                    if (todoColList) {
+                        const taskElement = createTaskElement(task);
+                        todoColList.appendChild(taskElement);
+                        columnCounts.todo++;
+                    }
+                    if(task) task.status = 'todo';
+                }
+            });
+
+            for (const colId in columnCounts) {
+                const countEl = document.getElementById(`${colId}-count`);
+                if (countEl) countEl.textContent = columnCounts[colId];
+            }
+
+            renderPriorityPieCharts(tasks.filter(task => !task.isArchived));
+            updateSummaryCounts();
+            renderQuickLists();
+            renderCategoryComparisonChart(tasks.filter(task => !task.isArchived));
+        }
+        function applySearchFilter() { currentSearchTerm = searchInput.value.trim().toLowerCase(); renderTasks(); }
+        function applyPriorityFilter() { currentPriorityFilter = filterPrioritySelect.value; renderTasks(); }
+        function applySort() { currentSort = sortTasksSelect.value; renderTasks(); }
+
+        // --- Data Persistence ---
+        function saveTasks() { try { localStorage.setItem('kanbanTasks', JSON.stringify(tasks)); } catch (error) { console.error("Error saving tasks:", error); showMessage("Error saving tasks.", 3000); } }
+        function loadTasks() {
+            const savedTasks = localStorage.getItem('kanbanTasks');
+            if (savedTasks && savedTasks !== '[]') {
+                try {
+                    tasks = JSON.parse(savedTasks); if (!Array.isArray(tasks)) tasks = [];
+                    tasks.forEach((task, index) => {
+                        if (!task.tags) task.tags = [];
+                        if (task.isArchived === undefined) task.isArchived = false;
+                        if (!task.createdAt) task.createdAt = Date.now() - index * 1000;
+                        if (task.description === undefined) task.description = '';
+                        if (task.category === undefined) task.category = '';
+                    });
+                } catch (error) { console.error("Error parsing tasks:", error); tasks = []; showMessage("Could not load saved tasks.", 3000); }
+            } else {
+                 tasks = [
+                     { id: generateId(), text: "Review project proposal", description: "Go through the new proposal document and highlight key areas for discussion.", category: "Work", status: "todo", priority: PRIORITIES.DO, dueDate: getPastDateString(2), tags: ["projectX", "review"], isArchived: false, createdAt: Date.now() - 5000 },
+                     { id: generateId(), text: "Plan team meeting agenda", description: "Prepare agenda points for the upcoming weekly team sync.", category: "Work", status: "todo", priority: PRIORITIES.SCHEDULE, dueDate: getTomorrowDateString(), tags: ["meeting", "planning"], isArchived: false, createdAt: Date.now() - 4000 },
+                     { id: generateId(), text: "Reply to non-urgent emails", description: "", category: "Work", status: "inprogress", priority: PRIORITIES.DELEGATE, dueDate: null, tags: ["email"], isArchived: false, createdAt: Date.now() - 3000 },
+                     { id: generateId(), text: "Organize old files", description: "Clean up the 'Downloads' folder and archive old project files.", category: "Personal", status: "todo", priority: PRIORITIES.DELETE, dueDate: getTodayDateString(), tags: ["admin", "cleanup"], isArchived: false, createdAt: Date.now() - 2000 },
+                     { id: generateId(), text: "Finalize report", description: "Add conclusions and executive summary to the quarterly report.", category: "Work", status: "done", priority: PRIORITIES.DO, dueDate: getPastDateString(5), tags: ["projectX", "report"], isArchived: false, createdAt: Date.now() - 1000 },
+                     { id: generateId(), text: "Submit expense report", description: "Collate all receipts and submit the expense report for last month.", category: "Finance", status: "done", priority: PRIORITIES.SCHEDULE, dueDate: getPastDateString(30), tags: ["finance", "admin"], isArchived: true, createdAt: Date.now() - 6000 }
+                 ];
+                 saveTasks();
+            }
+            loadCategories();
+            renderTasks();
+        }
+
+        // --- Task Actions ---
+        function addTask() {
+            const taskText = addModalTaskTextInput.value.trim();
+            const taskNotes = addModalTaskNotesInput.value.trim();
+            let taskCategory = addModalTaskCategorySelect.value;
+            if (taskCategory === "--add-new--") {
+                taskCategory = addModalNewCategoryInput.value.trim();
+                if (taskCategory && !categories.includes(taskCategory)) {
+                    categories.push(taskCategory);
+                    saveCategories();
+                } else if (!taskCategory) {
+                    taskCategory = "";
+                }
+            }
+
+            const taskDueDate = addModalTaskDueDateInput.value || null;
+            const taskTags = parseTags(addModalTaskTagsInput.value);
+
+            if (taskText === '') { showMessage('Please enter a task description.', 2500); addModalTaskTextInput.focus(); return; }
+
+            const selectedPriority = getPriorityFromCheckboxes(addModalUrgentCb, addModalImportantCb);
+
+            const newTask = {
+                id: generateId(), text: taskText, description: taskNotes, category: taskCategory, status: 'todo',
+                priority: selectedPriority, dueDate: taskDueDate, tags: taskTags,
+                isArchived: false, createdAt: Date.now()
+            };
+            tasks.unshift(newTask); saveTasks();
+            currentSearchTerm = ''; if (searchInput) searchInput.value = '';
+            currentPriorityFilter = 'all'; if (filterPrioritySelect) filterPrioritySelect.value = 'all';
+            currentSort = 'default'; if (sortTasksSelect) sortTasksSelect.value = 'default';
+            renderTasks(); closeAddTaskModal(); showMessage('Task added!', 1500);
+        }
+        function deleteTask(taskId) {
+            tasks = tasks.filter(task => task.id !== taskId);
+            saveTasks(); renderTasks(); renderArchiveList();
+            showMessage('Task permanently deleted', 1500);
+        }
+        function archiveTask(taskId) {
+             const taskIndex = tasks.findIndex(t => t.id === taskId);
+             if (taskIndex > -1) { tasks[taskIndex].isArchived = true; saveTasks(); renderTasks(); showMessage('Task archived!', 1500); }
+             else { console.error("Task not found for archiving:", taskId); }
+         }
+        function unarchiveTask(taskId) {
+             const taskIndex = tasks.findIndex(t => t.id === taskId);
+             if (taskIndex > -1) { tasks[taskIndex].isArchived = false; saveTasks(); renderTasks(); renderArchiveList(); showMessage('Task restored!', 1500); }
+             else { console.error("Task not found for unarchiving:", taskId); }
+         }
+
+        // --- Add Task Modal ---
+        function openAddTaskModal() {
+            if (editModal) closeEditModal();
+            if (deleteConfirmModal) closeDeleteConfirmModal();
+            if (archiveModal) closeArchiveModal();
+            if (dataManagementModal) closeDataManagementModal();
+            if (categoryManagementModal) closeCategoryManagementModal();
+
+
+            if (addModalTaskTextInput) addModalTaskTextInput.value = '';
+            if (addModalTaskNotesInput) addModalTaskNotesInput.value = '';
+            populateCategoryDropdown(addModalTaskCategorySelect, "");
+            if (addModalNewCategoryInput) { addModalNewCategoryInput.value = ''; addModalNewCategoryInput.classList.add('hidden');}
+            if (addModalTaskCategorySelect) addModalTaskCategorySelect.classList.remove('hidden');
+            if (addModalTaskTagsInput) addModalTaskTagsInput.value = '';
+            if (addModalTaskDueDateInput) addModalTaskDueDateInput.value = '';
+
+            if (addModalUrgentCb) addModalUrgentCb.checked = false;
+            if (addModalImportantCb) addModalImportantCb.checked = true;
+            updatePriorityActionDisplay(addModalUrgentCb, addModalImportantCb, addModalPriorityActionDisplay);
+
+
+            if (addTaskModal) {
+                addTaskModal.classList.add('show');
+                if (addModalTaskTextInput) addModalTaskTextInput.focus();
+            } else {
+                console.error("Add Task Modal element not found!");
+            }
+        }
+        function closeAddTaskModal() { if (addTaskModal) addTaskModal.classList.remove('show'); }
+
+        // --- Custom Delete Modal ---
+        function openDeleteConfirmModal(taskId, taskText) {
+            if (editModal) closeEditModal();
+            if (addTaskModal) closeAddTaskModal();
+            if (dataManagementModal) closeDataManagementModal();
+            if (categoryManagementModal) closeCategoryManagementModal();
+            if (deleteTaskIdInput) deleteTaskIdInput.value = taskId;
+            if (deleteTaskTextP) deleteTaskTextP.textContent = taskText;
+            if (deleteConfirmModal) deleteConfirmModal.classList.add('show');
+        }
+        function closeDeleteConfirmModal() {
+            if (deleteConfirmModal) deleteConfirmModal.classList.remove('show');
+            if (deleteTaskIdInput) deleteTaskIdInput.value = '';
+            if (deleteTaskTextP) deleteTaskTextP.textContent = '';
+        }
+        function handleDeleteConfirm() { const taskId = deleteTaskIdInput.value; if (taskId) { deleteTask(taskId); } closeDeleteConfirmModal(); }
+
+        // --- Edit Modal ---
+        function openEditModal(taskId) {
+            if (deleteConfirmModal) closeDeleteConfirmModal();
+            if (addTaskModal) closeAddTaskModal();
+            if (dataManagementModal) closeDataManagementModal();
+            if (categoryManagementModal) closeCategoryManagementModal();
+            const task = tasks.find(t => t.id === taskId); if (!task) { return; }
+
+            if (editTaskIdInput) editTaskIdInput.value = task.id;
+            if (editTaskTextInput) editTaskTextInput.value = task.text;
+            if (editTaskNotesInput) editTaskNotesInput.value = task.description || '';
+            populateCategoryDropdown(editModalTaskCategorySelect, task.category || "");
+            if (editModalNewCategoryInput) { editModalNewCategoryInput.value = ''; editModalNewCategoryInput.classList.add('hidden');}
+            if (editModalTaskCategorySelect) editModalTaskCategorySelect.classList.remove('hidden');
+            if (editTaskTagsInput) editTaskTagsInput.value = task.tags ? task.tags.join(', ') : '';
+            if (editTaskDueDateInput) editTaskDueDateInput.value = formatDateForInput(task.dueDate);
+
+            if (editModalUrgentCb && editModalImportantCb) {
+                editModalUrgentCb.checked = (task.priority === PRIORITIES.DO || task.priority === PRIORITIES.DELEGATE);
+                editModalImportantCb.checked = (task.priority === PRIORITIES.DO || task.priority === PRIORITIES.SCHEDULE);
+                updatePriorityActionDisplay(editModalUrgentCb, editModalImportantCb, editModalPriorityActionDisplay);
+            }
+
+            if (editModal) editModal.classList.add('show');
+        }
+        function closeEditModal() {
+            if (editModal) editModal.classList.remove('show');
+            if (editTaskIdInput) editTaskIdInput.value = '';
+            if (editTaskTextInput) editTaskTextInput.value = '';
+            if (editTaskNotesInput) editTaskNotesInput.value = '';
+            // if (editTaskCategoryInput) editTaskCategoryInput.value = ''; // This was for input, now select
+            if (editModalTaskCategorySelect) editModalTaskCategorySelect.value = '';
+            if (editTaskTagsInput) editTaskTagsInput.value = '';
+            if (editTaskDueDateInput) editTaskDueDateInput.value = '';
+            if (editModalUrgentCb) editModalUrgentCb.checked = false;
+            if (editModalImportantCb) editModalImportantCb.checked = true;
+            updatePriorityActionDisplay(editModalUrgentCb, editModalImportantCb, editModalPriorityActionDisplay);
+        }
+        function saveEditedTask() {
+            const taskId = editTaskIdInput.value; const newText = editTaskTextInput.value.trim();
+            const newNotes = editTaskNotesInput.value.trim();
+            let newCategory = editModalTaskCategorySelect.value;
+            if (newCategory === "--add-new--") {
+                newCategory = editModalNewCategoryInput.value.trim();
+                if (newCategory && !categories.includes(newCategory)) {
+                    categories.push(newCategory);
+                    saveCategories();
+                } else if (!newCategory) {
+                    newCategory = "";
+                }
+            }
+            const newTags = parseTags(editTaskTagsInput.value);
+            const newPriority = getPriorityFromCheckboxes(editModalUrgentCb, editModalImportantCb);
+            const newDueDate = editTaskDueDateInput.value || null;
+            if (!newText) { showMessage('Task description (title) cannot be empty.', 2500); editTaskTextInput.focus(); return; }
+            const taskIndex = tasks.findIndex(t => t.id === taskId);
+            if (taskIndex > -1) {
+                tasks[taskIndex].text = newText;
+                tasks[taskIndex].description = newNotes;
+                tasks[taskIndex].category = newCategory;
+                tasks[taskIndex].tags = newTags;
+                tasks[taskIndex].priority = newPriority;
+                tasks[taskIndex].dueDate = newDueDate;
+                saveTasks(); renderTasks(); closeEditModal(); showMessage('Task updated!', 1500);
+            } else { console.error("Task not found during save:", taskId); showMessage("Error saving task.", 2000); closeEditModal(); }
+        }
+
+        // --- Archive Modal ---
+        function renderArchiveList() {
+             if (!archiveList) return;
+             archiveList.innerHTML = '';
+             const archivedTasks = tasks.filter(task => task.isArchived);
+             if (archivedTasks.length === 0) {
+                 if (noArchivedTasksLi) {
+                    noArchivedTasksLi.style.display = 'list-item';
+                    archiveList.appendChild(noArchivedTasksLi);
+                 }
+             }
+             else {
+                 if (noArchivedTasksLi) noArchivedTasksLi.style.display = 'none';
+                 archivedTasks.forEach(task => {
+                     const li = document.createElement('li');
+                     const textSpan = document.createElement('span');
+                     textSpan.textContent = task.text; textSpan.className = 'archived-task-text'; li.appendChild(textSpan);
+                     const buttonDiv = document.createElement('div');
+                     const restoreBtn = document.createElement('button');
+                     restoreBtn.textContent = 'Restore'; restoreBtn.className = 'bg-blue-500 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded-md';
+                     restoreBtn.onclick = () => unarchiveTask(task.id); buttonDiv.appendChild(restoreBtn);
+                     const deleteBtn = document.createElement('button');
+                     deleteBtn.textContent = 'Delete'; deleteBtn.className = 'bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-2 rounded-md';
+                     deleteBtn.onclick = () => openDeleteConfirmModal(task.id, task.text); buttonDiv.appendChild(deleteBtn);
+                     li.appendChild(buttonDiv);
+                     archiveList.appendChild(li);
+                 });
+             }
+         }
+        function openArchiveModal() {
+            if (editModal) closeEditModal();
+            if (deleteConfirmModal) closeDeleteConfirmModal();
+            if (addTaskModal) closeAddTaskModal();
+            if (dataManagementModal) closeDataManagementModal();
+            if (categoryManagementModal) closeCategoryManagementModal();
+            renderArchiveList();
+            if (archiveModal) archiveModal.classList.add('show');
+        }
+        function closeArchiveModal() { if (archiveModal) archiveModal.classList.remove('show'); }
+
+        // --- Data Management Modal ---
+        function openDataManagementModal() {
+            if (editModal) closeEditModal();
+            if (deleteConfirmModal) closeDeleteConfirmModal();
+            if (addTaskModal) closeAddTaskModal();
+            if (archiveModal) closeArchiveModal();
+            if (categoryManagementModal) closeCategoryManagementModal();
+            if (dataManagementModal) dataManagementModal.classList.add('show');
+        }
+        function closeDataManagementModal() {
+            if (dataManagementModal) dataManagementModal.classList.remove('show');
+        }
+
+        // --- Export/Import Functions ---
+        function exportTasksJSON() {
+            if (tasks.length === 0) { showMessage("No tasks to export.", 2000); return; }
+            const fileName = "kanban_tasks.json";
+            const jsonStr = JSON.stringify(tasks, null, 2);
+            const blob = new Blob([jsonStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = fileName; document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+            showMessage("Tasks exported as JSON!", 1500);
+        }
+        function handleImportTasksJSON(event) {
+            const file = event.target.files[0]; if (!file) { return; }
+            if (file.type !== "application/json") {
+                showMessage("Invalid file type. Please select a .json file.", 3000);
+                if(modalImportJsonInput) modalImportJsonInput.value = ""; return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedTasks = JSON.parse(e.target.result);
+                    if (!Array.isArray(importedTasks)) { throw new Error("Imported data is not an array."); }
+                    const validatedTasks = importedTasks.map(task => ({
+                        id: task.id || generateId(), text: task.text || "Untitled Task",
+                        description: task.description || "",
+                        category: task.category || "",
+                        status: ['todo', 'inprogress', 'done'].includes(task.status) ? task.status : 'todo',
+                        priority: Object.values(PRIORITIES).includes(task.priority) ? task.priority : PRIORITIES.NONE,
+                        dueDate: task.dueDate || null,
+                        tags: Array.isArray(task.tags) ? task.tags : [],
+                        isArchived: typeof task.isArchived === 'boolean' ? task.isArchived : false,
+                        createdAt: task.createdAt || Date.now()
+                    }));
+                    tasks = validatedTasks; saveTasks(); renderTasks();
+                    showMessage("Tasks imported successfully from JSON!", 2000);
+                    closeDataManagementModal();
+                } catch (error) {
+                    console.error("Error importing JSON tasks:", error);
+                    showMessage("Error importing JSON: Invalid format or structure.", 3000);
+                } finally { if(modalImportJsonInput) modalImportJsonInput.value = ""; }
+            };
+            reader.readAsText(file);
+        }
+        function escapeCsvCell(cellData) {
+            if (cellData === null || cellData === undefined) { return ""; }
+            let cell = String(cellData);
+            if (cell.includes(',') || cell.includes('"') || cell.includes('\n') || cell.includes('\r')) {
+                cell = cell.replace(/"/g, '""'); cell = `"${cell}"`;
+            }
+            return cell;
+        }
+        function exportTasksCSV() {
+            if (tasks.length === 0) { showMessage("No tasks to export.", 2000); return; }
+            const headers = "id,text,description,category,status,priority,dueDate,tags,isArchived,createdAt";
+            const csvRows = [headers];
+            tasks.forEach(task => {
+                const row = [
+                    task.id, task.text, task.description, task.category || "",
+                    task.status, task.priority,
+                    task.dueDate || "", task.tags ? task.tags.join('|') : "",
+                    task.isArchived, task.createdAt ? new Date(task.createdAt).toISOString() : ""
+                ].map(escapeCsvCell).join(',');
+                csvRows.push(row);
+            });
+            const csvString = csvRows.join('\r\n');
+            const fileName = "kanban_tasks.csv";
+            const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = fileName; document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+            showMessage("Tasks exported as CSV!", 1500);
+        }
+        function handleImportTasksCSV(event) {
+            const file = event.target.files[0]; if (!file) return;
+            if (file.type !== "text/csv" && !file.name.endsWith(".csv")) {
+                showMessage("Invalid file type. Please select a .csv file.", 3000);
+                if (modalImportCsvInput) modalImportCsvInput.value = ""; return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const csvString = e.target.result;
+                    const rows = csvString.split(/\r\n|\n/);
+                    if (rows.length < 2) throw new Error("CSV file must have at least a header and one data row.");
+                    const headers = rows[0].split(',').map(h => h.trim());
+                    const importedTasks = [];
+                    for (let i = 1; i < rows.length; i++) {
+                        if (rows[i].trim() === "") continue;
+                        const values = rows[i].split(',');
+                        const getValue = (headerName, index) => {
+                            const headerIndex = headers.indexOf(headerName);
+                            return values[headerIndex !== -1 ? headerIndex : index]?.trim() || "";
+                        };
+                        const task = {
+                            id: getValue("id",0) || generateId(), text: getValue("text",1) || "Untitled Task",
+                            description: getValue("description",2) || "",
+                            category: getValue("category",3) || "",
+                            status: ['todo', 'inprogress', 'done'].includes(getValue("status",4)) ? getValue("status",4) : 'todo',
+                            priority: Object.values(PRIORITIES).includes(getValue("priority",5)) ? getValue("priority",5) : PRIORITIES.NONE,
+                            dueDate: getValue("dueDate",6) || null,
+                            tags: getValue("tags",7) ? getValue("tags",7).split('|') : [],
+                            isArchived: getValue("isArchived",8).toLowerCase() === 'true',
+                            createdAt: getValue("createdAt",9) ? new Date(getValue("createdAt",9)).getTime() : Date.now()
+                        };
+                        importedTasks.push(task);
+                    }
+                    tasks = validatedTasks; saveTasks(); renderTasks();
+                    showMessage("Tasks imported successfully from CSV!", 2000);
+                    closeDataManagementModal();
+                } catch (error) {
+                    console.error("Error importing CSV tasks:", error);
+                    showMessage(`Error importing CSV: ${error.message}. Check file format.`, 4000);
+                } finally { if (modalImportCsvInput) modalImportCsvInput.value = ""; }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- Confetti ---
+        function launchConfetti() { confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 }, zIndex: 1150 }); }
+
+        // --- Graphing Functions ---
+        function calculateStatusDistributionByPriority(tasksToAnalyze) {
+            const distribution = {};
+            Object.values(PRIORITIES).forEach(priorityKey => {
+                if (priorityKey !== PRIORITIES.NONE) { distribution[priorityKey] = { todo: 0, inprogress: 0, done: 0 }; }
+            });
+            tasksToAnalyze.forEach(task => {
+                if (task.priority && distribution[task.priority]) {
+                    if (task.status === 'todo') distribution[task.priority].todo++;
+                    else if (task.status === 'inprogress') distribution[task.priority].inprogress++;
+                    else if (task.status === 'done') distribution[task.priority].done++;
+                }
+            });
+            return distribution;
+        }
+        function renderPriorityPieCharts(tasksToGraph) {
+            const distribution = calculateStatusDistributionByPriority(tasksToGraph);
+
+            Object.keys(distribution).forEach(priorityKey => {
+                const canvasId = `pieChart${priorityKey.charAt(0).toUpperCase() + priorityKey.slice(1)}`;
+                const canvas = document.getElementById(canvasId);
+                const titleEl = document.getElementById(`pie-chart-title-${priorityKey}`);
+
+                if (!canvas) { console.warn(`Canvas with ID ${canvasId} not found.`); return; }
+                if(titleEl) {
+                    const totalInPriority = distribution[priorityKey].todo + distribution[priorityKey].inprogress + distribution[priorityKey].done;
+                    titleEl.textContent = `${PRIORITY_LABELS[priorityKey]} (${totalInPriority})`;
+                }
+                const ctx = canvas.getContext('2d');
+                const data = [ distribution[priorityKey].todo, distribution[priorityKey].inprogress, distribution[priorityKey].done ];
+
+                if (priorityPieCharts[priorityKey]) {
+                    priorityPieCharts[priorityKey].destroy();
+                }
+
+                priorityPieCharts[priorityKey] = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['To Do', 'In Progress', 'Done'],
+                        datasets: [{
+                            label: `Status for ${PRIORITY_LABELS[priorityKey]}`, data: data,
+                            backgroundColor: [ STATUS_COLORS.todo, STATUS_COLORS.inprogress, STATUS_COLORS.done ],
+                            borderColor: [ STATUS_BORDER_COLORS.todo, STATUS_BORDER_COLORS.inprogress, STATUS_BORDER_COLORS.done ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            title: { display: false },
+                            tooltip: { callbacks: { label: function(context) { let label = context.label || ''; if (label) { label += ': '; } if (context.parsed !== null) { label += context.parsed; } return label; } } }
+                        }
+                    }
+                });
+            });
+        }
+
+        // --- Quick Lists Rendering ---
+        function renderQuickLists() {
+            let tasksForQuickView = tasks.filter(task => !task.isArchived);
+
+            // Apply global search term if active
+            if (currentSearchTerm) {
+                tasksForQuickView = tasksForQuickView.filter(task =>
+                    task.text.toLowerCase().includes(currentSearchTerm) ||
+                    (task.tags && task.tags.some(tag => tag.toLowerCase().includes(currentSearchTerm))) ||
+                    (task.description && task.description.toLowerCase().includes(currentSearchTerm))
+                );
+            }
+            // Sort based on global sort setting
+            tasksForQuickView.sort((a, b) => {
+                switch (currentSort) {
+                    case 'dueDateAsc':
+                        if (!a.dueDate && !b.dueDate) return 0; if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+                        return new Date(a.dueDate + 'T00:00:00') - new Date(b.dueDate + 'T00:00:00');
+                    case 'dueDateDesc':
+                        if (!a.dueDate && !b.dueDate) return 0; if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+                        return new Date(b.dueDate + 'T00:00:00') - new Date(a.dueDate + 'T00:00:00');
+                    case 'default': default: return (b.createdAt || 0) - (a.createdAt || 0);
+                }
+            });
+
+
+            // Helper to populate a UL with tasks
+            const populateList = (ulElement, taskArray) => {
+                if (!ulElement) return;
+                ulElement.innerHTML = ''; // Clear previous items
+                if (taskArray.length === 0) {
+                    const li = document.createElement('li');
+                    li.textContent = 'No tasks match this view.';
+                    li.className = 'text-gray-500 italic px-3 py-2';
+                    ulElement.appendChild(li);
+                    return;
+                }
+                taskArray.forEach(task => {
+                    const li = document.createElement('li');
+                    li.append(` ${task.text}`);
+                    if (task.dueDate) {
+                        li.append(` (Due: ${task.dueDate})`);
+                    }
+                    li.addEventListener('click', () => openEditModal(task.id));
+                    ulElement.appendChild(li);
+                });
+            };
+
+            // Today's Tasks (Now in Summary)
+            if (summaryTodayTasksListUl) {
+                const todayTasks = tasksForQuickView.filter(task => isDateToday(task.dueDate));
+                populateList(summaryTodayTasksListUl, todayTasks);
+            }
+
+            // Overdue Tasks (Now in Summary)
+            if (summaryOverdueTasksListUl) {
+                const overdueTasks = tasksForQuickView.filter(task => task.status !== 'done' && isDateOverdue(task.dueDate));
+                populateList(summaryOverdueTasksListUl, overdueTasks);
+                summaryOverdueTasksListUl.querySelectorAll('li').forEach(li => {
+                    li.classList.add('text-red-600', 'font-semibold');
+                });
+            }
+
+            // Tasks by Category (remains in Quick Lists Accordion)
+            if (quickListCategoryUl && quickListCategoryFilter) {
+                const allNonArchivedForDropdown = tasks.filter(task => !task.isArchived);
+                const uniqueCategories = [...new Set(allNonArchivedForDropdown.map(task => task.category).filter(cat => cat))].sort();
+                const currentCategorySelection = quickListCategoryFilter.value;
+                quickListCategoryFilter.innerHTML = '<option value="all">All Categories</option>';
+                uniqueCategories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat;
+                    option.textContent = cat;
+                    quickListCategoryFilter.appendChild(option);
+                });
+                if (uniqueCategories.includes(currentCategorySelection)) {
+                    quickListCategoryFilter.value = currentCategorySelection;
+                } else {
+                    quickListCategoryFilter.value = 'all';
+                }
+                currentQuickListCategory = quickListCategoryFilter.value;
+
+                let categoryTasks = tasksForQuickView;
+                if (currentQuickListCategory !== 'all') {
+                    categoryTasks = categoryTasks.filter(task => task.category === currentQuickListCategory);
+                }
+                populateList(quickListCategoryUl, categoryTasks);
+            }
+
+            // Tasks by Status (remains in Quick Lists Accordion)
+            if (quickListStatusUl && quickListStatusFilter) {
+                currentQuickListStatus = quickListStatusFilter.value;
+                let statusTasks = tasksForQuickView;
+                if (currentQuickListStatus !== 'all') {
+                    statusTasks = statusTasks.filter(task => task.status === currentQuickListStatus);
+                }
+                populateList(quickListStatusUl, statusTasks);
+            }
+        }
+
+        // --- Accordion Toggle Functionality ---
+        function setupAccordions() {
+            document.querySelectorAll('.accordion-header').forEach(header => {
+                const content = header.nextElementSibling;
+                const icon = header.querySelector('.accordion-icon');
+
+                // Initialize content to be collapsed
+                if (content) {
+                    content.style.maxHeight = '0';
+                    content.style.paddingTop = '0';
+                    content.style.paddingBottom = '0';
+                    content.style.overflow = 'hidden';
+                }
+                 if (icon) { // Ensure icon is in default state
+                    icon.style.transform = 'rotate(0deg)';
+                }
+                header.classList.remove('active');
+
+
+                header.addEventListener('click', () => {
+                    if (!content) return;
+
+                    header.classList.toggle('active');
+                    const isActive = header.classList.contains('active');
+                    if (icon) icon.style.transform = isActive ? 'rotate(90deg)' : 'rotate(0deg)';
+
+                    if (isActive) { // Expanding
+                        let paddingTopValue = '1rem';
+                        let paddingBottomValue = '1rem';
+
+                        if (content.id === 'quick-lists-container') {
+                            paddingTopValue = '0';
+                            paddingBottomValue = '1.5rem';
+                        }
+                        content.style.paddingTop = paddingTopValue;
+                        content.style.paddingBottom = paddingBottomValue;
+
+                        requestAnimationFrame(() => {
+                            content.style.maxHeight = content.scrollHeight + "px";
+                        });
+
+                    } else { // Collapsing
+                        content.style.maxHeight = '0';
+                        // Delay removing padding until after collapse animation for smoother visual.
+                        setTimeout(() => {
+                            if (!header.classList.contains('active')) {
+                                content.style.paddingTop = '0';
+                                content.style.paddingBottom = '0';
+                            }
+                        }, 300); // Match CSS transition duration
+                    }
+                });
+            });
+        }
+
+        // --- Category Management ---
+        function loadCategories() {
+            const savedCategories = localStorage.getItem('kanbanCategories');
+            if (savedCategories) {
+                categories = JSON.parse(savedCategories);
+            } else {
+                saveCategories();
+            }
+            populateCategoryDropdowns();
+            renderCategoryManagementList();
+        }
+        function saveCategories() {
+            localStorage.setItem('kanbanCategories', JSON.stringify(categories));
+            populateCategoryDropdowns();
+            renderCategoryManagementList();
+            renderTasks();
+        }
+
+        function populateCategoryDropdowns() {
+            populateCategoryDropdown(addModalTaskCategorySelect, "");
+            populateCategoryDropdown(editModalTaskCategorySelect, "");
+            if (quickListCategoryFilter) {
+                const currentCategorySelection = quickListCategoryFilter.value;
+                quickListCategoryFilter.innerHTML = '<option value="all">All Categories</option>';
+                categories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat;
+                    option.textContent = cat;
+                    quickListCategoryFilter.appendChild(option);
+                });
+                 if (categories.includes(currentCategorySelection)) {
+                    quickListCategoryFilter.value = currentCategorySelection;
+                } else {
+                    quickListCategoryFilter.value = 'all';
+                }
+            }
+        }
+
+
+        function populateCategoryDropdown(selectElement, currentValue) {
+            if (!selectElement) return;
+            selectElement.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = "";
+            defaultOption.textContent = "-- Select Category --";
+            selectElement.appendChild(defaultOption);
+
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                if (cat === currentValue) {
+                    option.selected = true;
+                }
+                selectElement.appendChild(option);
+            });
+            const addNewOption = document.createElement('option');
+            addNewOption.value = "--add-new--";
+            addNewOption.textContent = "-- Add New Category --";
+            selectElement.appendChild(addNewOption);
+        }
+
+        function handleCategoryDropdownChange(selectElement, newCategoryInputElement) {
+            if (selectElement.value === "--add-new--") {
+                selectElement.classList.add('hidden');
+                newCategoryInputElement.classList.remove('hidden');
+                newCategoryInputElement.focus();
+            } else {
+                selectElement.classList.remove('hidden');
+                newCategoryInputElement.classList.add('hidden');
+            }
+        }
+
+        function renderCategoryManagementList() {
+            if (!categoryListUl) return;
+            categoryListUl.innerHTML = '';
+            if (categories.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No categories defined.';
+                li.className = 'text-gray-500 italic p-2';
+                categoryListUl.appendChild(li);
+                return;
+            }
+            categories.forEach(cat => {
+                const li = document.createElement('li');
+                li.textContent = cat;
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '&times;';
+                deleteBtn.title = `Delete category "${cat}"`;
+                deleteBtn.onclick = () => deleteCategory(cat);
+                li.appendChild(deleteBtn);
+                categoryListUl.appendChild(li);
+            });
+        }
+
+        function addNewCategoryFromModal() {
+            const newCategory = newCategoryNameInput.value.trim();
+            if (newCategory && !categories.includes(newCategory)) {
+                categories.push(newCategory);
+                categories.sort();
+                saveCategories();
+                newCategoryNameInput.value = '';
+            } else if (categories.includes(newCategory)) {
+                showMessage(`Category "${newCategory}" already exists.`, 2000);
+            } else {
+                showMessage("Please enter a category name.", 2000);
+            }
+        }
+
+        function deleteCategory(categoryToDelete) {
+            if (confirm(`Are you sure you want to delete the category "${categoryToDelete}"? This will not remove it from existing tasks.`)) {
+                categories = categories.filter(cat => cat !== categoryToDelete);
+                saveCategories();
+            }
+        }
+
+        function openCategoryManagementModal() {
+            if (editModal) closeEditModal();
+            if (deleteConfirmModal) closeDeleteConfirmModal();
+            if (addTaskModal) closeAddTaskModal();
+            if (archiveModal) closeArchiveModal();
+            if (dataManagementModal) closeDataManagementModal();
+            renderCategoryManagementList();
+            if (categoryManagementModal) categoryManagementModal.classList.add('show');
+        }
+        function closeCategoryManagementModal() {
+            if (categoryManagementModal) categoryManagementModal.classList.remove('show');
+        }
+
+        // Category Comparison Chart
+        function renderCategoryComparisonChart(tasksToGraph) {
+            if (!categoryComparisonChartCanvas) return;
+
+            const categoryCounts = {};
+            tasksToGraph.forEach(task => {
+                const category = task.category || "Uncategorized";
+                categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+            });
+
+            const labels = Object.keys(categoryCounts);
+            const data = Object.values(categoryCounts);
+
+            const backgroundColors = labels.map((_, i) => `hsla(${i * (360 / (labels.length || 1))}, 70%, 60%, 0.7)`);
+            const borderColors = labels.map((_, i) => `hsla(${i * (360 / (labels.length || 1))}, 70%, 50%, 1)`);
+
+
+            if (categoryComparisonChart) {
+                categoryComparisonChart.destroy();
+            }
+
+            categoryComparisonChart = new Chart(categoryComparisonChartCanvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Task Count',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+
+        // --- Event Listeners ---
+        if (openAddTaskModalBtnControls) openAddTaskModalBtnControls.addEventListener('click', openAddTaskModal);
+        if (confirmAddTaskBtn) confirmAddTaskBtn.addEventListener('click', addTask);
+        if (cancelAddTaskBtn) cancelAddTaskBtn.addEventListener('click', closeAddTaskModal);
+        if (addTaskModal) addTaskModal.addEventListener('click', (e) => { if (e.target === addTaskModal) closeAddTaskModal(); });
+        if (addModalTaskTextInput) addModalTaskTextInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addTask(); });
+        if (addModalTaskTagsInput) addModalTaskTagsInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addTask(); });
+        if (addModalTaskDueDateInput) addModalTaskDueDateInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addTask(); });
+        if(addModalUrgentCb) addModalUrgentCb.addEventListener('change', () => updatePriorityActionDisplay(addModalUrgentCb, addModalImportantCb, addModalPriorityActionDisplay));
+        if(addModalImportantCb) addModalImportantCb.addEventListener('change', () => updatePriorityActionDisplay(addModalUrgentCb, addModalImportantCb, addModalPriorityActionDisplay));
+        if(addModalTaskCategorySelect) addModalTaskCategorySelect.addEventListener('change', () => handleCategoryDropdownChange(addModalTaskCategorySelect, addModalNewCategoryInput));
+
+
+        if (searchInput) searchInput.addEventListener('input', applySearchFilter);
+        if (filterPrioritySelect) filterPrioritySelect.addEventListener('change', applyPriorityFilter);
+        if (sortTasksSelect) sortTasksSelect.addEventListener('change', applySort);
+
+        if (saveEditBtn) saveEditBtn.addEventListener('click', saveEditedTask);
+        if (cancelEditBtn) cancelEditBtn.addEventListener('click', closeEditModal);
+        if (editModal) editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
+        if(editModalUrgentCb) editModalUrgentCb.addEventListener('change', () => updatePriorityActionDisplay(editModalUrgentCb, editModalImportantCb, editModalPriorityActionDisplay));
+        if(editModalImportantCb) editModalImportantCb.addEventListener('change', () => updatePriorityActionDisplay(editModalUrgentCb, editModalImportantCb, editModalPriorityActionDisplay));
+        if(editModalTaskCategorySelect) editModalTaskCategorySelect.addEventListener('change', () => handleCategoryDropdownChange(editModalTaskCategorySelect, editModalNewCategoryInput));
+
+
+        if (viewArchiveBtn) viewArchiveBtn.addEventListener('click', openArchiveModal);
+        if (closeArchiveBtn) closeArchiveBtn.addEventListener('click', closeArchiveModal);
+        if (archiveModal) archiveModal.addEventListener('click', (e) => { if (e.target === archiveModal) closeArchiveModal(); });
+
+        if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', handleDeleteConfirm);
+        if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', closeDeleteConfirmModal);
+        if (deleteConfirmModal) deleteConfirmModal.addEventListener('click', (e) => { if (e.target === deleteConfirmModal) closeDeleteConfirmModal(); });
+
+        if (openDataManagementModalBtn) openDataManagementModalBtn.addEventListener('click', openDataManagementModal);
+        if (closeDataManagementModalBtn) closeDataManagementModalBtn.addEventListener('click', closeDataManagementModal);
+        if (dataManagementModal) dataManagementModal.addEventListener('click', (e) => { if (e.target === dataManagementModal) closeDataManagementModal(); });
+
+        if (modalExportJsonBtn) modalExportJsonBtn.addEventListener('click', exportTasksJSON);
+        if (modalImportJsonInput) modalImportJsonInput.addEventListener('change', handleImportTasksJSON);
+        if (modalExportCsvBtn) modalExportCsvBtn.addEventListener('click', exportTasksCSV);
+        if (modalImportCsvInput) modalImportCsvInput.addEventListener('change', handleImportTasksCSV);
+
+        // Quick List Filter Listeners
+        if (quickListCategoryFilter) quickListCategoryFilter.addEventListener('change', renderQuickLists);
+        if (quickListStatusFilter) quickListStatusFilter.addEventListener('change', renderQuickLists);
+
+        // Category Management Modal Listeners
+        if(manageCategoriesBtn) manageCategoriesBtn.addEventListener('click', openCategoryManagementModal);
+        if(closeCategoryManagementModalBtn) closeCategoryManagementModalBtn.addEventListener('click', closeCategoryManagementModal);
+        if(addNewCategoryBtn) addNewCategoryBtn.addEventListener('click', addNewCategoryFromModal);
+        if(newCategoryNameInput) newCategoryNameInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') addNewCategoryFromModal(); });
+        if(categoryManagementModal) categoryManagementModal.addEventListener('click', (e) => { if(e.target === categoryManagementModal) closeCategoryManagementModal(); });
+
+
+        columns.forEach(column => {
+             const taskList = column.querySelector('.task-list-main'); // Target the main list for drops
+             const columnId = column.dataset.columnId;
+            column.addEventListener('dragenter', (e) => { e.preventDefault(); if (draggedTask && draggedTask.closest('.kanban-column') !== column) column.classList.add('drag-over'); });
+            column.addEventListener('dragover', (e) => { e.preventDefault(); if (draggedTask && draggedTask.closest('.kanban-column') !== column) column.classList.add('drag-over'); e.dataTransfer.dropEffect = 'move'; });
+            column.addEventListener('dragleave', (e) => { if (!column.contains(e.relatedTarget) && !column.contains(document.elementFromPoint(e.clientX, e.clientY))) { column.classList.remove('drag-over'); } });
+            column.addEventListener('drop', (e) => {
+                 e.preventDefault(); column.classList.remove('drag-over'); if (!draggedTask) return;
+                 const taskId = draggedTask.id;
+                 const taskObject = tasks.find(t => t.id === taskId);
+
+                 if (taskObject && (e.target === taskList || e.target === column || column.contains(e.target))) {
+                    const originalTaskElement = document.getElementById(taskId);
+                    if (originalTaskElement && taskList && !taskList.contains(originalTaskElement)) {
+                         taskList.appendChild(originalTaskElement);
+                    }
+
+                     const taskIndex = tasks.findIndex(t => t.id === taskId);
+                     if (taskIndex > -1) {
+                         const previousStatus = tasks[taskIndex].status; tasks[taskIndex].status = columnId;
+                         saveTasks(); renderTasks();
+                         if (columnId === 'done' && previousStatus !== 'done') { launchConfetti(); showMessage('Task Completed! 🎉'); }
+                     } else { console.error("Dropped task not found in tasks array:", taskId); renderTasks(); }
+                 }
+                 if (draggedTask) draggedTask.classList.remove('opacity-50'); draggedTask = null;
+             });
+         });
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTasks();
+            displayCurrentDate();
+            setupAccordions();
+        });
+
+    </script>
+
+</body>
+</html>
